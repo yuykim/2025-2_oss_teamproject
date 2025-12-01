@@ -1,70 +1,102 @@
-# Getting Started with Create React App
+📚 AI Quiz Generator
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+PDF/TXT 문서를 기반으로 LLM이 자동으로 객관식 문제를 생성하고,
+React UI를 통해 사용자에게 퀴즈 형태로 제공하는 웹 서비스
 
-## Available Scripts
+🚀 목표
+기능	목표
+파일 기반 콘텐츠 처리	사용자가 업로드한 PDF/TXT 내용을 분석
+LLM 퀴즈 생성	텍스트 기반 객관식 문제 JSON 자동 생성
+UI 제공	React에서 선택형 문제를 풀 수 있는 UI 제공
+배포	Vercel 기반 배포 및 무DB 서비스 구현
+🏗 기술 스택
+Category	Stack
+Frontend	React / Vite or CRA / Tailwind(Optional)
+Backend (Serverless)	Vercel Functions (Node.js)
+AI Engine	OpenAI Responses API (gpt-4.1-mini)
+Deployment	Vercel
+DB	❌ 없음 (상태 → 클라이언트 로컬 유지)
+📌 서비스 동작 흐름
+사용자 → PDF/TXT 업로드
+            ↓ (텍스트 추출)
+React → /api/generate-questions → LLM 요청
+            ↓ (JSON 문제 데이터)
+프론트 UI에서 카드 형태로 퀴즈 표시
 
-In the project directory, you can run:
+🔥 전체 기능 Plan
+1. MVP 기능 (최소 기능 버전)
+기능	상세	상태
+TXT/PDF 업로드	FileReader + pdf.js로 텍스트 추출	🟡 예정
+문제 자동 생성	LLM에게 JSON 형태로 문제 5개 생성 요청	🟡 예정
+UI 출력	QuestionCard 컴포넌트로 문제/선택지 표시	🟡 예정
+배포	Vercel Deploy	🟡 예정
+2. 확장 기능(선택적 발전)
+기능	설명
+난이도 옵션 선택	Easy/Medium/Hard 프롬프트 반영
+문제 수 설정	5 → 10/20 증가 가능
+시험 모드 / 학습 모드	채점 & 정답 숨기기 기능
+텍스트 일부만 선택 학습	PDF 페이지 범위 입력
+UI 스타일 업그레이드	Tailwind + 애니메이션 + 다크모드
+📁 프로젝트 구조 (예정)
+📦 project-root
+├─ src/
+│  ├─ App.jsx            # UI 메인
+│  ├─ components/        # QuestionCard, Upload 등 UI 컴포넌트
+│  └─ api/llm.js         # LLM 직접 호출 버전(선택)
+│
+├─ api/
+│  └─ generate-questions.js   # Vercel Serverless 함수(API)
+│
+├─ vercel.json           # 함수 설정 (Node 18 런타임)
+├─ README.md             # 📍 현재 문서
+└─ .env.local            # OPENAI_API_KEY (노출 금지)
 
-### `npm start`
+🔑 환경 변수
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Vercel → 프로젝트 Settings → Environment Variables
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+KEY	VALUE
+OPENAI_API_KEY	sk-xxxx....
 
-### `npm test`
+React 클라이언트에서 직접 호출 ❌
+API Key는 서버리스 함수에서만 사용
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+🧠 LLM 요청 포맷
+다음 텍스트를 기반으로 객관식 문제 5개를 JSON으로 생성하라.
 
-### `npm run build`
+형식:
+[
+  {"question": "...", "options": [...], "answerIndex": n, "explanation": "..."}
+]
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+텍스트:
+{본문}
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+🖥 로컬 실행 가이드
+npm install
+npm run dev
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-### `npm run eject`
+배포:
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+vercel --prod
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+📌 목표 결과물 UI 예시
+Q1. 이 문서의 핵심 키워드는?
+[A] ~~~   [B] ~~~   [C] ~~~   [D] ~~~
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+선택 → 정답 및 해설 표시
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+⬇ 예상 UI
+사용자가 문제 클릭 → 정답 표시
+JSON 기반 카드 리스트 렌더링
+문제 수 늘려도 구성 유지
+📍 결론
+항목	선택
+배포	Vercel
+API 방식	Serverless Function 1개
+DB 필요?	❌ 없음
+구현 우선순위	텍스트 파싱 → LLM → UI → 확장
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+목표: 문서 → 학습 문제 자동 생성
+서비스형 프로젝트로 발전 가능성 충분 🚀
