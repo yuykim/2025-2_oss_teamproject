@@ -1,0 +1,32 @@
+[
+  {
+    "question": "5 + 7의 값은 무엇인가?",
+    "options": ["10", "11", "12", "13"],
+    "answerIndex": 2,
+    "explanation": "5 + 7 = 12이다."
+  },
+  {
+    "question": "직각은 몇 도인가?",
+    "options": ["45도", "60도", "90도", "180도"],
+    "answerIndex": 2,
+    "explanation": "직각은 90도를 의미한다."
+  },
+  {
+    "question": "다음 중 짝수는 어떤 수인가?",
+    "options": ["3", "5", "6", "9"],
+    "answerIndex": 2,
+    "explanation": "2로 나누어 떨어지는 수가 짝수이며 6이 이에 해당한다."
+  },
+  {
+    "question": "3 x 4의 결과는?",
+    "options": ["7", "9", "11", "12"],
+    "answerIndex": 3,
+    "explanation": "3을 네 번 더하면 12가 된다."
+  },
+  {
+    "question": "삼각형의 꼭짓점 수는 몇 개인가?",
+    "options": ["2개", "3개", "4개", "5개"],
+    "answerIndex": 1,
+    "explanation": "삼각형은 점(꼭짓점)이 3개이다."
+  }
+]
