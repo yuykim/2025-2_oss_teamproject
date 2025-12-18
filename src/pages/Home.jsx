@@ -1,29 +1,30 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from "pdfjs-dist/build/pdf";
-import "./MyQuizzes.css"; // 모달 스타일 재사용하려면(없으면 지워도 됨)
+import "./MyQuizzes.css"; // 모달 스타일 재사용 (없으면 지워도 됨)
 
-// CRA 기준: public/에 pdf.worker.min.mjs 두면 접근 가능
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 const Home = () => {
   const navigate = useNavigate();
 
-  // 모달 상태
+  // 모달 open
   const [open, setOpen] = useState(false);
 
-  // 메타 입력
+  // 입력값
   const [title, setTitle] = useState("");
   const [difficulty, setDifficulty] = useState("easy");
   const [tagsText, setTagsText] = useState("");
 
-  // PDF 업로드 & 텍스트
+  // PDF
   const [pdfFile, setPdfFile] = useState(null);
-  const [extractedText, setExtractedText] = useState("");
 
   // 상태
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // (선택) 추출 텍스트 미리보기/디버그용
+  const [previewText, setPreviewText] = useState("");
 
   const tags = useMemo(() => {
     return tagsText
@@ -37,9 +38,9 @@ const Home = () => {
     setDifficulty("easy");
     setTagsText("");
     setPdfFile(null);
-    setExtractedText("");
     setLoading(false);
     setError("");
+    setPreviewText("");
   };
 
   const closeModal = () => {
@@ -50,11 +51,11 @@ const Home = () => {
   const onPickFile = (e) => {
     const file = e.target.files?.[0] || null;
     setPdfFile(file);
-    setExtractedText("");
     setError("");
+    setPreviewText("");
   };
 
-  // ✅ 프론트에서 PDF → 텍스트 추출
+  // ✅ 프론트에서 PDF → 텍스트 추출 (여기가 핵심)
   const extractPdfText = async (file) => {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -69,7 +70,7 @@ const Home = () => {
     return fullText.trim();
   };
 
-  // ✅ 생성하기 버튼(모달 내부)
+  // ✅ 생성 시작 버튼 (서버 호출 전에 반드시 텍스트 추출 await)
   const handleGenerate = async () => {
     setError("");
 
@@ -85,23 +86,25 @@ const Home = () => {
     setLoading(true);
 
     try {
-      // 1) 텍스트 추출 (이미 추출돼있으면 재사용)
-      const text = extractedText.trim()
-        ? extractedText
-        : await extractPdfText(pdfFile);
+      // 1) PDF -> 텍스트 먼저!
+      const text = await extractPdfText(pdfFile);
 
-      if (!text.trim()) {
-        throw new Error("PDF에서 텍스트를 추출하지 못했습니다. (스캔본 PDF일 수 있어요)");
+      // 디버깅/미리보기 (너무 길면 앞부분만)
+      setPreviewText(text.slice(0, 1500));
+
+      // text가 비면 서버에서 400 뜸 (네가 겪은 문제)
+      if (!text || !text.trim()) {
+        throw new Error(
+          "PDF에서 텍스트를 추출하지 못했습니다. (스캔본 PDF면 텍스트가 없을 수 있어요)"
+        );
       }
 
-      setExtractedText(text);
-
-      // 2) 서버리스 호출 (Vercel)
+      // 2) 서버리스 호출
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text,
+          text, // ✅ 반드시 여기로 추출된 text가 들어감
           meta: {
             title: title.trim(),
             difficulty,
@@ -116,20 +119,16 @@ const Home = () => {
         throw new Error(payload?.detail || `요청 실패 (HTTP ${res.status})`);
       }
 
-      // 3) 업로드 결과에서 "첫 번째 저장된 퀴즈 id" 찾기
-      // uploaded: [{ ok:true, saved:{ id: "..." } }, ...]
+      // 3) 업로드 결과에서 첫 saved id 찾기 (있으면 디테일로 이동)
       const firstSavedId =
         payload?.uploaded?.find((x) => x?.ok && x?.saved?.id)?.saved?.id || null;
 
-      // 4) 모달 닫고 이동
       setOpen(false);
       resetModal();
 
-      // 바로 디테일로 보내고 싶으면:
       if (firstSavedId) {
         navigate(`/quizzes/${firstSavedId}`);
       } else {
-        // fallback: 목록 페이지
         navigate("/my-quizzes");
       }
     } catch (err) {
@@ -160,11 +159,14 @@ const Home = () => {
         퀴즈 생성하기
       </button>
 
-      {/* ✅ 모달 */}
+      {/* 모달 */}
       {open && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>AI 퀴즈 생성</h3>
+            <h3 style={{ marginTop: 0 }}>퀴즈 생성 설정</h3>
+            <p style={{ marginTop: -6, fontSize: 13, opacity: 0.7 }}>
+              이름/난이도/태그를 정하고 PDF를 업로드하면 자동으로 퀴즈를 생성해 저장합니다.
+            </p>
 
             <div className="modal-group">
               <div className="modal-label">퀴즈 이름</div>
@@ -172,7 +174,7 @@ const Home = () => {
                 className="modal-input"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="예) Discrete Math 중간고사 대비"
+                placeholder="예) 이산수학 기말 대비"
               />
             </div>
 
@@ -190,22 +192,18 @@ const Home = () => {
             </div>
 
             <div className="modal-group">
-              <div className="modal-label">태그 (쉼표로 구분)</div>
+              <div className="modal-label">태그(쉼표로 구분)</div>
               <input
                 className="modal-input"
                 value={tagsText}
                 onChange={(e) => setTagsText(e.target.value)}
-                placeholder="예) 수학, 확률, 기말"
+                placeholder="예) 그래프, 확률, 중간고사"
               />
             </div>
 
             <div className="modal-group">
               <div className="modal-label">PDF 업로드</div>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={onPickFile}
-              />
+              <input type="file" accept="application/pdf" onChange={onPickFile} />
               {pdfFile && (
                 <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
                   📄 {pdfFile.name}
@@ -213,16 +211,19 @@ const Home = () => {
               )}
             </div>
 
-            {/* (선택) 추출 텍스트 미리보기: 너무 길면 UI 지저분하면 지워도 됨 */}
-            {extractedText && (
+            {/* (선택) 텍스트 추출 확인용 */}
+            {previewText && (
               <div className="modal-group" style={{ textAlign: "left" }}>
-                <div className="modal-label">추출된 텍스트(미리보기)</div>
+                <div className="modal-label">추출 텍스트(미리보기)</div>
                 <textarea
                   className="modal-input"
-                  style={{ height: 120 }}
-                  value={extractedText}
-                  onChange={(e) => setExtractedText(e.target.value)}
+                  style={{ height: 110 }}
+                  value={previewText}
+                  onChange={(e) => setPreviewText(e.target.value)}
                 />
+                <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                  ※ 미리보기는 앞부분만 표시됩니다.
+                </div>
               </div>
             )}
 
@@ -236,14 +237,13 @@ const Home = () => {
               <button className="cancel-btn" onClick={closeModal} disabled={loading}>
                 취소
               </button>
-
               <button className="save-btn" onClick={handleGenerate} disabled={loading}>
-                {loading ? "생성 중..." : "생성하기"}
+                {loading ? "생성 중..." : "생성 시작"}
               </button>
             </div>
 
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-              생성하면 자동으로 MockAPI에 저장되고, 생성된 퀴즈 페이지로 이동합니다.
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.65 }}>
+              * Vercel에서는 <code>/api/generate</code> 서버리스 함수와 UPSTAGE_API_KEY 환경변수가 필요합니다.
             </div>
           </div>
         </div>
