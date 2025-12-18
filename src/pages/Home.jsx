@@ -1,38 +1,45 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import * as pdfjsLib from "pdfjs-dist/build/pdf";
+import "./MyQuizzes.css"; // 모달 스타일 재사용하려면(없으면 지워도 됨)
+
+// CRA 기준: public/에 pdf.worker.min.mjs 두면 접근 가능
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 const Home = () => {
   const navigate = useNavigate();
 
-  // ✅ 모달 on/off
+  // 모달 상태
   const [open, setOpen] = useState(false);
 
-  // ✅ 입력값
+  // 메타 입력
   const [title, setTitle] = useState("");
   const [difficulty, setDifficulty] = useState("easy");
-  const [tagsText, setTagsText] = useState(""); // "태그1, 태그2" 형태
+  const [tagsText, setTagsText] = useState("");
 
-  // ✅ PDF
+  // PDF 업로드 & 텍스트
   const [pdfFile, setPdfFile] = useState(null);
+  const [extractedText, setExtractedText] = useState("");
 
-  // ✅ 상태
+  // 상태
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // 배포/로컬 대응(필요 없으면 "" 그대로 두면 됨)
-  const API_BASE = useMemo(() => {
-    const base = process.env.REACT_APP_API_BASE?.trim();
-    if (!base) return "";
-    return base.replace(/\/+$/, "");
-  }, []);
+  const tags = useMemo(() => {
+    return tagsText
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }, [tagsText]);
 
   const resetModal = () => {
     setTitle("");
     setDifficulty("easy");
     setTagsText("");
     setPdfFile(null);
-    setError("");
+    setExtractedText("");
     setLoading(false);
+    setError("");
   };
 
   const closeModal = () => {
@@ -40,16 +47,34 @@ const Home = () => {
     resetModal();
   };
 
-  const parseTags = (txt) =>
-    txt
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
+  const onPickFile = (e) => {
+    const file = e.target.files?.[0] || null;
+    setPdfFile(file);
+    setExtractedText("");
+    setError("");
+  };
 
-  // ✅ 생성 요청
+  // ✅ 프론트에서 PDF → 텍스트 추출
+  const extractPdfText = async (file) => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let fullText = "";
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+      const strings = content.items.map((item) => item.str);
+      fullText += strings.join(" ") + "\n\n";
+    }
+    return fullText.trim();
+  };
+
+  // ✅ 생성하기 버튼(모달 내부)
   const handleGenerate = async () => {
+    setError("");
+
     if (!title.trim()) {
-      setError("퀴즈 이름을 입력해 주세요.");
+      setError("퀴즈 이름(제목)을 입력해 주세요.");
       return;
     }
     if (!pdfFile) {
@@ -58,61 +83,58 @@ const Home = () => {
     }
 
     setLoading(true);
-    setError("");
 
     try {
-      // PDF -> base64 (서버로 전송)
-      const arrayBuffer = await pdfFile.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
+      // 1) 텍스트 추출 (이미 추출돼있으면 재사용)
+      const text = extractedText.trim()
+        ? extractedText
+        : await extractPdfText(pdfFile);
 
-      // Uint8Array -> base64
-      let binary = "";
-      const chunkSize = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+      if (!text.trim()) {
+        throw new Error("PDF에서 텍스트를 추출하지 못했습니다. (스캔본 PDF일 수 있어요)");
       }
-      const base64 = btoa(binary);
 
-      const endpoint = `${API_BASE}/api/generate`;
+      setExtractedText(text);
 
-      const res = await fetch(endpoint, {
+      // 2) 서버리스 호출 (Vercel)
+      const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ 메타데이터 + PDF(base64)
         body: JSON.stringify({
-          title: title.trim(),
-          difficulty,
-          tags: parseTags(tagsText),
-          pdfBase64: base64, // 서버에서 PDF 텍스트 추출하도록
-          filename: pdfFile.name,
+          text,
+          meta: {
+            title: title.trim(),
+            difficulty,
+            tags,
+          },
         }),
       });
 
       const payload = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(payload?.detail || payload?.message || `요청 실패 (HTTP ${res.status})`);
+        throw new Error(payload?.detail || `요청 실패 (HTTP ${res.status})`);
       }
 
-      // ✅ 업로드 성공 시 이동
-      // payload.uploaded: [{ ok, saved: {...mockapi응답...} }, ...]
-      const uploaded = Array.isArray(payload?.uploaded) ? payload.uploaded : [];
-      const firstSaved = uploaded.find((x) => x?.ok && x?.saved)?.saved;
+      // 3) 업로드 결과에서 "첫 번째 저장된 퀴즈 id" 찾기
+      // uploaded: [{ ok:true, saved:{ id: "..." } }, ...]
+      const firstSavedId =
+        payload?.uploaded?.find((x) => x?.ok && x?.saved?.id)?.saved?.id || null;
 
-      // 모달 닫기
-      closeModal();
+      // 4) 모달 닫고 이동
+      setOpen(false);
+      resetModal();
 
-      // ✅ detail 페이지가 있다면 그쪽으로
-      if (firstSaved?.id) {
-        // 예: /quiz/123 같은 라우트가 있으면 여기 바꾸면 됨
-        // navigate(`/quiz/${firstSaved.id}`);
-        navigate("/myquizzes");
+      // 바로 디테일로 보내고 싶으면:
+      if (firstSavedId) {
+        navigate(`/quizzes/${firstSavedId}`);
       } else {
-        navigate("/myquizzes");
+        // fallback: 목록 페이지
+        navigate("/my-quizzes");
       }
-    } catch (e) {
-      console.error(e);
-      setError(e.message || "생성 중 오류가 발생했습니다.");
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "생성 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -140,82 +162,26 @@ const Home = () => {
 
       {/* ✅ 모달 */}
       {open && (
-        <div
-          onClick={closeModal}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.45)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 16,
-            zIndex: 9999,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "min(560px, 95vw)",
-              background: "white",
-              borderRadius: 16,
-              padding: 20,
-              textAlign: "left",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0 }}>퀴즈 생성 설정</h2>
-              <button
-                onClick={closeModal}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  fontSize: 22,
-                  cursor: "pointer",
-                  lineHeight: 1,
-                }}
-                aria-label="close"
-              >
-                ×
-              </button>
-            </div>
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>AI 퀴즈 생성</h3>
 
-            <p style={{ marginTop: 8, color: "#555" }}>
-              이름/난이도/태그를 정하고 PDF를 업로드하면 자동으로 퀴즈를 생성해 저장합니다.
-            </p>
-
-            {/* 이름 */}
-            <div style={{ marginTop: 14 }}>
-              <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>퀴즈 이름</label>
+            <div className="modal-group">
+              <div className="modal-label">퀴즈 이름</div>
               <input
+                className="modal-input"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="예: 이산수학 중간고사 대비"
-                style={{
-                  width: "100%",
-                  padding: "12px 10px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  outline: "none",
-                }}
+                placeholder="예) Discrete Math 중간고사 대비"
               />
             </div>
 
-            {/* 난이도 */}
-            <div style={{ marginTop: 14 }}>
-              <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>난이도</label>
+            <div className="modal-group">
+              <div className="modal-label">난이도</div>
               <select
+                className="modal-select"
                 value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "12px 10px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  outline: "none",
-                  background: "white",
-                }}
               >
                 <option value="easy">easy</option>
                 <option value="medium">medium</option>
@@ -223,79 +189,61 @@ const Home = () => {
               </select>
             </div>
 
-            {/* 태그 */}
-            <div style={{ marginTop: 14 }}>
-              <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>태그(쉼표로 구분)</label>
+            <div className="modal-group">
+              <div className="modal-label">태그 (쉼표로 구분)</div>
               <input
+                className="modal-input"
                 value={tagsText}
                 onChange={(e) => setTagsText(e.target.value)}
-                placeholder="예: 그래프, 오일러, 해밀턴"
-                style={{
-                  width: "100%",
-                  padding: "12px 10px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  outline: "none",
-                }}
+                placeholder="예) 수학, 확률, 기말"
               />
             </div>
 
-            {/* PDF */}
-            <div style={{ marginTop: 14 }}>
-              <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>PDF 업로드</label>
+            <div className="modal-group">
+              <div className="modal-label">PDF 업로드</div>
               <input
                 type="file"
                 accept="application/pdf"
-                onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                onChange={onPickFile}
               />
-              {pdfFile && <div style={{ marginTop: 8 }}>📄 {pdfFile.name}</div>}
+              {pdfFile && (
+                <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
+                  📄 {pdfFile.name}
+                </div>
+              )}
             </div>
 
+            {/* (선택) 추출 텍스트 미리보기: 너무 길면 UI 지저분하면 지워도 됨 */}
+            {extractedText && (
+              <div className="modal-group" style={{ textAlign: "left" }}>
+                <div className="modal-label">추출된 텍스트(미리보기)</div>
+                <textarea
+                  className="modal-input"
+                  style={{ height: 120 }}
+                  value={extractedText}
+                  onChange={(e) => setExtractedText(e.target.value)}
+                />
+              </div>
+            )}
+
             {error && (
-              <div style={{ marginTop: 12, color: "#c62828", fontWeight: 600 }}>
+              <div style={{ color: "crimson", marginTop: 10, fontSize: 14 }}>
                 ⚠ {error}
               </div>
             )}
 
-            {/* 버튼 */}
-            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-              <button
-                onClick={closeModal}
-                disabled={loading}
-                style={{
-                  flex: 1,
-                  padding: "12px 14px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  background: "white",
-                  cursor: "pointer",
-                  opacity: loading ? 0.7 : 1,
-                }}
-              >
+            <div className="modal-actions">
+              <button className="cancel-btn" onClick={closeModal} disabled={loading}>
                 취소
               </button>
 
-              <button
-                onClick={handleGenerate}
-                disabled={loading}
-                style={{
-                  flex: 1,
-                  padding: "12px 14px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "#58cc02",
-                  color: "white",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  opacity: loading ? 0.7 : 1,
-                }}
-              >
-                {loading ? "생성 중..." : "생성 시작"}
+              <button className="save-btn" onClick={handleGenerate} disabled={loading}>
+                {loading ? "생성 중..." : "생성하기"}
               </button>
             </div>
 
-            <div style={{ marginTop: 10, color: "#777", fontSize: 12 }}>
-              * 배포(Vercel)에서는 <code>/api/generate</code> 서버리스 함수와 <code>UPSTAGE_API_KEY</code> 환경변수가 필요합니다.
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+              생성하면 자동으로 MockAPI에 저장되고, 생성된 퀴즈 페이지로 이동합니다.
             </div>
           </div>
         </div>
