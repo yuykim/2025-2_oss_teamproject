@@ -13,6 +13,9 @@ const MyQuizzes = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // ✅ 즐겨찾기만 보기 토글
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
   // ✅ 수정 모달
   const [editingQuiz, setEditingQuiz] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -47,7 +50,6 @@ const MyQuizzes = () => {
       if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
 
       setQuizzes((prev) => prev.filter((q) => q.id !== id));
-      // 편집 중이던 대상이 삭제되면 모달도 닫기
       if (editingQuiz?.id === id) setEditingQuiz(null);
     } catch (err) {
       console.error(err);
@@ -74,7 +76,6 @@ const MyQuizzes = () => {
         prev.map((q) => (q.id === quiz.id ? updatedQuiz : q))
       );
 
-      // 모달이 열려있는 퀴즈면 모달 상태도 동기화
       if (editingQuiz?.id === quiz.id) {
         setEditingQuiz(updatedQuiz);
       }
@@ -133,28 +134,48 @@ const MyQuizzes = () => {
     }
   };
 
+  // ✅ 검색 + 즐겨찾기 필터 합치기
   const filteredQuizzes = useMemo(() => {
     const t = searchTerm.trim().toLowerCase();
-    if (!t) return quizzes;
 
-    return quizzes.filter((q) => {
-      const titleMatch = (q.title || "").toLowerCase().includes(t);
-      const tagMatch = q.tags?.some((tag) =>
-        String(tag).toLowerCase().includes(t)
-      );
-      return titleMatch || tagMatch;
-    });
-  }, [quizzes, searchTerm]);
+    return quizzes
+      .filter((q) => {
+        // 즐겨찾기만 보기 ON이면, isFavorite만 통과
+        if (showFavoritesOnly && !q.isFavorite) return false;
+        return true;
+      })
+      .filter((q) => {
+        if (!t) return true;
+
+        const titleMatch = (q.title || "").toLowerCase().includes(t);
+        const tagMatch = q.tags?.some((tag) =>
+          String(tag).toLowerCase().includes(t)
+        );
+        return titleMatch || tagMatch;
+      });
+  }, [quizzes, searchTerm, showFavoritesOnly]);
 
   if (loading) return <div>로딩 중...</div>;
 
   return (
     <div className="myquizzes-container">
       <div className="myquizzes-header">
-        <h2 style={{ margin: 0 }}>My Quizzes</h2>
+        <h2 style={{ margin: 0 }}>
+          My Quizzes {showFavoritesOnly ? "★" : ""}
+        </h2>
 
         <div className="myquizzes-actions">
           <button onClick={fetchQuizzes}>🔄 Reload</button>
+
+          {/* ✅ 즐겨찾기만 보기 토글 */}
+          <button
+            onClick={() => setShowFavoritesOnly((v) => !v)}
+            className={showFavoritesOnly ? "danger-toggle" : "green-toggle"}
+            title="즐겨찾기만 보기"
+          >
+            {showFavoritesOnly ? "전체 보기" : "즐겨찾기만"}
+          </button>
+
           <button
             onClick={() => setIsEditMode((v) => !v)}
             className={isEditMode ? "danger-toggle" : "green-toggle"}
@@ -171,6 +192,12 @@ const MyQuizzes = () => {
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
       />
+
+      {showFavoritesOnly && filteredQuizzes.length === 0 && (
+        <div style={{ marginTop: 16, opacity: 0.7 }}>
+          즐겨찾기한 퀴즈가 없습니다. 별(★)을 눌러 추가해보세요.
+        </div>
+      )}
 
       <div className="quiz-grid">
         {filteredQuizzes.map((quiz) => (
@@ -266,7 +293,10 @@ const MyQuizzes = () => {
             </div>
 
             <div className="modal-actions">
-              <button className="cancel-btn" onClick={() => setEditingQuiz(null)}>
+              <button
+                className="cancel-btn"
+                onClick={() => setEditingQuiz(null)}
+              >
                 취소
               </button>
               <button className="save-btn" onClick={saveEdit}>
