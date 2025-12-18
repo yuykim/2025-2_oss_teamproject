@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from "pdfjs-dist/build/pdf";
 import "./MyQuizzes.css"; // 모달 스타일 재사용 (없으면 지워도 됨)
 
-import * as pdfjsLib from "pdfjs-dist/build/pdf";
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
